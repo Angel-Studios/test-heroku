@@ -14,14 +14,15 @@ console.log('Redis URL detected:', redisURL.replace(/rediss?:\/\/.*@/, 'redis[s]
 // Configure Redis client with TLS options if needed
 const redisOptions = {
   tls: redisURL.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
-  maxRetriesPerRequest: 3,
-  enableOfflineQueue: false,
-  connectTimeout: 10000
+  connectTimeout: 10000,
+  // Don't use these options because they cause issues with Bull
+  // maxRetriesPerRequest: null,
+  // enableReadyCheck: false
 };
 
 // Create Bull queue
 const webhookQueue = new Queue('webhook-queue', {
-  createClient: (type) => {
+  createClient: function(type) {
     return new Redis(redisURL, redisOptions);
   },
   defaultJobOptions: {
