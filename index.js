@@ -1,54 +1,83 @@
 const express = require('express');
-const Queue = require('bull');
+const axios = require('axios');
 const app = express();
 const port = process.env.PORT || 3000;
 
 // Parse JSON request bodies
 app.use(express.json());
 
-// Create a Bull queue with proper Redis connection
-const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
-console.log('Connecting to Redis at:', REDIS_URL.replace(/rediss?:\/\/.*@/, 'redis[s]://***@')); // Hide credentials
-
-// Configure Bull with the Redis URL
-const webhookQueue = new Queue('webhook-queue', REDIS_URL, {
-  defaultJobOptions: {
-    attempts: 3,
-    backoff: {
-      type: 'exponential',
-      delay: 1000
-    },
-    removeOnComplete: true,
-    removeOnFail: false
-  }
-});
-
-// Listen for Redis connection events
-webhookQueue.on('error', (error) => {
-  console.error('Redis connection error:', error.message);
-});
-
-webhookQueue.on('ready', () => {
-  console.log('Redis connection established');
-});
+// In-memory job queue for demonstration
+const jobs = [];
 
 // Basic route to trigger the webhook
 app.post('/trigger-webhook', async (req, res) => {
   try {
     console.log('Received webhook trigger request');
     
-    // Add job to the queue
-    const job = await webhookQueue.add({ 
+    // Create a job
+    const jobId = Date.now().toString();
+    const job = { 
+      id: jobId,
       timestamp: new Date(),
-      message: 'Starting to process sketch job'
-    });
+      message: 'Starting to process sketch job',
+      status: 'pending'
+    };
     
-    console.log('Job added to queue:', job.id);
-    res.json({ success: true, message: 'Webhook job added to queue', jobId: job.id });
+    // Add job to in-memory queue
+    jobs.push(job);
+    
+    console.log('Job created:', jobId);
+    
+    // Send the response immediately
+    res.json({ success: true, message: 'Webhook job added to queue', jobId });
+    
+    // Process the job asynchronously
+    setTimeout(async () => {
+      try {
+        job.status = 'processing';
+        
+        // Hit the webhook URL
+        const response = await axios.post('https://3bb9-66-219-246-75.ngrok-free.app/webhook', {
+          message: job.message,
+          jobId: job.id,
+          timestamp: job.timestamp
+        }, {
+          timeout: 5000 // 5 second timeout for the request
+        });
+        
+        job.status = 'completed';
+        job.result = {
+          status: response.status,
+          data: response.data
+        };
+        
+        console.log(`Job ${jobId} completed:`, response.status);
+      } catch (error) {
+        job.status = 'failed';
+        job.error = error.message;
+        console.error(`Job ${jobId} failed:`, error.message);
+      }
+    }, 100); // Small delay to process after response is sent
+    
   } catch (error) {
-    console.error('Error adding job to queue:', error.message);
+    console.error('Error processing webhook request:', error.message);
     res.status(500).json({ success: false, error: error.message });
   }
+});
+
+// Get job status
+app.get('/job/:id', (req, res) => {
+  const job = jobs.find(j => j.id === req.params.id);
+  if (job) {
+    res.json(job);
+  } else {
+    res.status(404).json({ error: 'Job not found' });
+  }
+});
+
+// List jobs
+app.get('/jobs', (req, res) => {
+  res.json(jobs);
 });
 
 // Health check endpoint

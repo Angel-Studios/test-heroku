@@ -1,15 +1,16 @@
-# Heroku Worker App with Bull MQ
+# Heroku Webhook POC
 
-A simple Node.js application with Express and Bull MQ that runs on Heroku. It implements the worker queue pattern with Redis for background job processing.
+A simple Node.js application that demonstrates webhook processing in a Heroku environment. This is a proof of concept for a background job processing system.
 
-## Architecture
+## Simplified Architecture
 
-This app consists of two processes:
+For this POC, we're using a simplified architecture:
 
-1. **Web process** (`index.js`): An Express server that serves the API endpoints and adds jobs to the Redis queue
-2. **Worker process** (`worker.js`): A Node.js process that consumes jobs from the Redis queue and executes them
+1. Express web server that receives webhook trigger requests
+2. In-memory job queue for demonstration purposes
+3. Asynchronous job processing using setTimeout
 
-The worker process uses the `throng` module to create multiple worker processes based on the `WEB_CONCURRENCY` environment variable, which Heroku sets automatically.
+The app simulates a job queue system without external dependencies, making it simple to understand and deploy.
 
 ## Setup
 
@@ -18,34 +19,30 @@ The worker process uses the `throng` module to create multiple worker processes 
 heroku create
 ```
 
-2. Add Redis to your Heroku app:
-```
-heroku addons:create heroku-redis:mini
-```
-
-3. Deploy to Heroku:
+2. Deploy to Heroku:
 ```
 git push heroku main
 ```
 
-4. Ensure both web and worker dynos are running:
-```
-heroku ps:scale web=1 worker=1
-```
-
 ## Usage
 
-To trigger a job, send a POST request to `/trigger-webhook`:
+To trigger a webhook, send a POST request to `/trigger-webhook`:
 
 ```
 curl -X POST https://your-app-name.herokuapp.com/trigger-webhook
 ```
 
-This will add a job to the Redis queue, which will be processed by the worker dyno. The worker will then call the configured webhook URL.
+This will add a job to the in-memory queue and process it asynchronously, calling the configured webhook URL.
 
 ## Monitoring
 
-You can view the logs to monitor job processing:
+You can use the following endpoints to monitor jobs:
+
+- `GET /jobs` - List all jobs
+- `GET /job/:id` - Get status of a specific job
+- `GET /` - Health check endpoint
+
+You can also view the logs:
 
 ```
 heroku logs --tail
