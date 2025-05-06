@@ -1,22 +1,28 @@
 const express = require('express');
 const Queue = require('bull');
+const Redis = require('ioredis');
 const app = express();
 const port = process.env.PORT || 3000;
 
 // Parse JSON request bodies
 app.use(express.json());
 
-// Create a Bull queue with proper Redis connection
-const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
-const isTLS = REDIS_URL.startsWith('rediss://');
-console.log(`Connecting to Redis (TLS: ${isTLS}) at:`, REDIS_URL.replace(/rediss?:\/\/.*@/, 'redis[s]://***@')); // Hide credentials in logs
+// Create Redis client with proper TLS options
+const redisURL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+console.log('Redis URL detected:', redisURL.replace(/rediss?:\/\/.*@/, 'redis[s]://***@'));
 
-// Configure Bull with the Redis connection
+// Configure Redis client with TLS options if needed
+const redisOptions = {
+  tls: redisURL.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
+  maxRetriesPerRequest: 3,
+  enableOfflineQueue: false,
+  connectTimeout: 10000
+};
+
+// Create Bull queue
 const webhookQueue = new Queue('webhook-queue', {
-  redis: REDIS_URL,
-  limiter: {
-    max: 5,
-    duration: 5000
+  createClient: (type) => {
+    return new Redis(redisURL, redisOptions);
   },
   defaultJobOptions: {
     attempts: 3,
@@ -31,11 +37,11 @@ const webhookQueue = new Queue('webhook-queue', {
 
 // Listen for Redis connection events
 webhookQueue.on('error', (error) => {
-  console.error('Redis connection error:', error.message);
+  console.error('Queue error:', error.message);
 });
 
 webhookQueue.on('ready', () => {
-  console.log('Redis connection established successfully');
+  console.log('Queue is ready');
 });
 
 // Basic route to trigger the webhook
