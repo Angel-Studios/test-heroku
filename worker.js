@@ -1,33 +1,20 @@
 const Queue = require('bull');
 const axios = require('axios');
 const throng = require('throng');
-const Redis = require('ioredis');
 
 // Set up worker configuration
 const workers = process.env.WEB_CONCURRENCY || 2;
 const maxJobsPerWorker = 50;
 
 // Redis connection
-const redisURL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 
 function start() {
   console.log(`Worker started with concurrency: ${workers}`);
-  console.log('Redis URL detected:', redisURL.replace(/rediss?:\/\/.*@/, 'redis[s]://***@'));
+  console.log('Connecting to Redis at:', REDIS_URL.replace(/rediss?:\/\/.*@/, 'redis[s]://***@')); // Hide credentials
 
-  // Configure Redis client with TLS options if needed
-  const redisOptions = {
-    tls: redisURL.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
-    connectTimeout: 10000,
-    // Don't use these options because they cause issues with Bull
-    // maxRetriesPerRequest: null,
-    // enableReadyCheck: false
-  };
-
-  // Create Bull queue
-  const webhookQueue = new Queue('webhook-queue', {
-    createClient: function(type) {
-      return new Redis(redisURL, redisOptions);
-    },
+  // Create Bull queue with simple Redis URL connection
+  const webhookQueue = new Queue('webhook-queue', REDIS_URL, {
     defaultJobOptions: {
       attempts: 3,
       backoff: {
@@ -41,11 +28,11 @@ function start() {
 
   // Handle Redis connection events
   webhookQueue.on('error', (error) => {
-    console.error('Queue error:', error.message);
+    console.error('Redis connection error:', error.message);
   });
 
   webhookQueue.on('ready', () => {
-    console.log('Queue is ready');
+    console.log('Redis connection established');
   });
 
   // Process jobs from the queue
