@@ -8,32 +8,24 @@ app.use(express.json());
 
 // Create a Bull queue with proper Redis connection
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
-console.log('Connecting to Redis at:', REDIS_URL.replace(/redis:\/\/.*@/, 'redis://***@')); // Hide credentials in logs
+const isTLS = REDIS_URL.startsWith('rediss://');
+console.log(`Connecting to Redis (TLS: ${isTLS}) at:`, REDIS_URL.replace(/rediss?:\/\/.*@/, 'redis[s]://***@')); // Hide credentials in logs
 
-// Better connection options for Bull/Redis
+// Configure Bull with the Redis connection
 const webhookQueue = new Queue('webhook-queue', {
-  redis: {
-    port: parseInt(process.env.REDIS_PORT) || 6379,
-    host: process.env.REDIS_HOST || '127.0.0.1',
-    password: process.env.REDIS_PASSWORD || '',
-    db: 0,
-    tls: process.env.REDIS_TLS_URL ? { rejectUnauthorized: false } : undefined,
-    enableReadyCheck: false,
-    maxRetriesPerRequest: 5,
-    enableOfflineQueue: false,
-    connectTimeout: 30000,
-    retryStrategy: function(times) {
-      const delay = Math.min(times * 500, 5000);
-      console.log(`Redis retry attempt ${times} with delay ${delay}ms`);
-      return delay;
-    }
+  redis: REDIS_URL,
+  limiter: {
+    max: 5,
+    duration: 5000
   },
   defaultJobOptions: {
     attempts: 3,
     backoff: {
       type: 'exponential',
       delay: 1000
-    }
+    },
+    removeOnComplete: true,
+    removeOnFail: false
   }
 });
 
@@ -43,7 +35,7 @@ webhookQueue.on('error', (error) => {
 });
 
 webhookQueue.on('ready', () => {
-  console.log('Redis connection established');
+  console.log('Redis connection established successfully');
 });
 
 // Basic route to trigger the webhook
