@@ -30,7 +30,7 @@ webhookQueue.process(async (job) => {
   try {
     // Hit the webhook URL
     const response = await axios.post('https://3bb9-66-219-246-75.ngrok-free.app/webhook', {
-      message: 'Starting to process sketch jobxxxx',
+      message: 'Starting to process sketch job',
       jobId: job.id,
       timestamp: job.data.timestamp
     }, {
