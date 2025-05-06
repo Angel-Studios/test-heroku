@@ -1,78 +1,55 @@
 const Queue = require('bull');
 const axios = require('axios');
-const throng = require('throng');
-
-// Set up worker configuration
-const workers = process.env.WEB_CONCURRENCY || 2;
-const maxJobsPerWorker = 50;
 
 // Redis connection
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+console.log('Worker starting, connecting to Redis at:', REDIS_URL.replace(/rediss?:\/\/.*@/, 'redis[s]://***@'));
 
-function start() {
-  console.log(`Worker started with concurrency: ${workers}`);
-  console.log('Connecting to Redis at:', REDIS_URL.replace(/rediss?:\/\/.*@/, 'redis[s]://***@')); // Hide credentials
+// Create a Bull queue
+const webhookQueue = new Queue('webhook-queue', REDIS_URL);
 
-  // Create Bull queue with simple Redis URL connection
-  const webhookQueue = new Queue('webhook-queue', REDIS_URL, {
-    defaultJobOptions: {
-      attempts: 3,
-      backoff: {
-        type: 'exponential',
-        delay: 1000
-      },
-      removeOnComplete: true,
-      removeOnFail: false
-    }
-  });
+console.log('Worker initialized, waiting for jobs...');
 
-  // Handle Redis connection events
-  webhookQueue.on('error', (error) => {
-    console.error('Redis connection error:', error.message);
-  });
-
-  webhookQueue.on('ready', () => {
-    console.log('Redis connection established');
-  });
-
-  // Process jobs from the queue
-  webhookQueue.process(maxJobsPerWorker, async (job) => {
-    console.log(`Processing job ${job.id}`, job.data);
+// Process jobs from the queue
+webhookQueue.process(async (job) => {
+  console.log(`Processing job ${job.id}:`, job.data);
+  
+  try {
+    // Hit the webhook URL
+    const response = await axios.post('https://3bb9-66-219-246-75.ngrok-free.app/webhook', {
+      message: 'Testing QUEUE worker 1',
+      jobId: job.id,
+      timestamp: job.data.timestamp
+    }, {
+      timeout: 5000 // 5 second timeout for the request
+    });
     
-    try {
-      // Hit the webhook URL
-      const response = await axios.post('https://3bb9-66-219-246-75.ngrok-free.app/webhook', {
-        message: 'Starting to process sketch job',
-        jobId: job.id,
-        timestamp: job.data.timestamp
-      }, {
-        timeout: 5000 // 5 second timeout for the request
-      });
-      
-      console.log(`Job ${job.id} completed:`, response.status, response.data);
-      return { success: true, status: response.status };
-    } catch (error) {
-      console.error(`Job ${job.id} failed:`, error.message);
-      throw new Error(`Failed to hit webhook: ${error.message}`);
-    }
-  });
+    console.log(`Job ${job.id} completed with status:`, response.status);
+    console.log(`Response data:`, response.data);
+    
+    return { 
+      success: true, 
+      status: response.status,
+      data: response.data
+    };
+  } catch (error) {
+    console.error(`Job ${job.id} failed:`, error.message);
+    throw new Error(`Failed to hit webhook: ${error.message}`);
+  }
+});
 
-  // Monitor queue events
-  webhookQueue.on('completed', (job, result) => {
-    console.log(`Job ${job.id} completed with result:`, result);
-  });
+// Monitor queue events
+webhookQueue.on('completed', (job, result) => {
+  console.log(`Job ${job.id} completed with result:`, result);
+});
 
-  webhookQueue.on('failed', (job, error) => {
-    console.error(`Job ${job.id} failed with error:`, error.message);
-  });
+webhookQueue.on('failed', (job, error) => {
+  console.error(`Job ${job.id} failed with error:`, error.message);
+});
 
-  // Handle graceful shutdown
-  process.on('SIGTERM', async () => {
-    console.log('Shutting down worker...');
-    await webhookQueue.close();
-    process.exit(0);
-  });
-}
-
-// Start the worker cluster
-throng({ workers, start }); 
+// Keep process alive
+process.on('SIGTERM', async () => {
+  console.log('Shutting down worker...');
+  await webhookQueue.close();
+  process.exit(0);
+}); 
