@@ -12,11 +12,26 @@ const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 function start() {
   console.log(`Worker started with concurrency: ${workers}`);
 
-  // Create a Bull queue with proper Redis connection
+  // Create a Bull queue with better connection options
   console.log('Connecting to Redis at:', REDIS_URL.replace(/redis:\/\/.*@/, 'redis://***@')); // Hide credentials
   
   const webhookQueue = new Queue('webhook-queue', {
-    redis: REDIS_URL,
+    redis: {
+      port: parseInt(process.env.REDIS_PORT) || 6379,
+      host: process.env.REDIS_HOST || '127.0.0.1',
+      password: process.env.REDIS_PASSWORD || '',
+      db: 0,
+      tls: process.env.REDIS_TLS_URL ? { rejectUnauthorized: false } : undefined,
+      enableReadyCheck: false,
+      maxRetriesPerRequest: 5,
+      enableOfflineQueue: false,
+      connectTimeout: 30000,
+      retryStrategy: function(times) {
+        const delay = Math.min(times * 500, 5000);
+        console.log(`Redis retry attempt ${times} with delay ${delay}ms`);
+        return delay;
+      }
+    },
     defaultJobOptions: {
       attempts: 3,
       backoff: {
@@ -26,9 +41,13 @@ function start() {
     }
   });
 
-  // Handle Redis connection errors
+  // Handle Redis connection events
   webhookQueue.on('error', (error) => {
     console.error('Redis connection error:', error.message);
+  });
+
+  webhookQueue.on('ready', () => {
+    console.log('Redis connection established');
   });
 
   // Process jobs from the queue
